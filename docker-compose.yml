@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  minigit-viewer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount the host filesystem to allow access to Git repositories
+      # Adjust the path as needed for your repositories
+      - /home:/home:ro
+      - /tmp:/tmp:ro
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+  # Development service (alternative to production)
+  minigit-viewer-dev:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount the entire project for hot reload
+      - .:/app
+      # Mount the host filesystem to allow access to Git repositories
+      - /home:/home:ro
+      - /tmp:/tmp:ro
+    environment:
+      - NODE_ENV=development
+    profiles:
+      - dev
+
