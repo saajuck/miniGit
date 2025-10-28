@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { RepoPathInput } from "@/components/RepoPathInput";
 import { BranchList } from "@/components/BranchList";
 import { CommitList } from "@/components/CommitList";
@@ -35,6 +36,9 @@ export default function Home() {
   const [loadingDiff, setLoadingDiff] = useState(false);
   const [error, setError] = useState<string>("");
   const [activeTab, setActiveTab] = useState("repo");
+  const [currentCommitOid, setCurrentCommitOid] = useState<string | null>(null);
+  const [comparePair, setComparePair] = useState<{ b1: string; b2: string } | null>(null);
+  const queryClient = useQueryClient();
 
   // Load repo from localStorage on mount
   useEffect(() => {
@@ -44,56 +48,41 @@ export default function Home() {
       const savedPath = localStorage.getItem("minigit-repo-path");
       if (savedPath) {
         console.log("Loading saved repo from localStorage:", savedPath);
-        setLoadingRepo(true);
         setError("");
-
-        try {
-          const response = await fetch("/api/repo/branches", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ repoPath: savedPath }),
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            setRepoPath(savedPath);
-            setBranches(data.branches);
-            
-            // Auto-select first branch if available
-            if (data.branches.length > 0) {
-              // Load commits for the first branch
-              const commitsResponse = await fetch("/api/repo/commits", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ repoPath: savedPath, branch: data.branches[0] }),
-              });
-
-              if (commitsResponse.ok) {
-                const commitsData = await commitsResponse.json();
-                setCommits(commitsData.commits);
-                setSelectedBranch(data.branches[0]);
-              }
-            }
-            
-            // Switch to diff tab
-            setActiveTab("diff");
-          } else {
-            // Remove invalid path from localStorage
-            localStorage.removeItem("minigit-repo-path");
-          }
-        } catch (err) {
-          console.error("Failed to load saved repo:", err);
-          // Remove invalid path from localStorage
-          localStorage.removeItem("minigit-repo-path");
-        } finally {
-          setLoadingRepo(false);
-        }
+        setRepoPath(savedPath);
+        setActiveTab("diff");
       }
     };
 
     loadSavedRepo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // React Query: branches
+  const { data: branchesData, isLoading: branchesLoading } = useQuery<{ branches: string[] }>({
+    queryKey: ["branches", repoPath],
+    enabled: !!repoPath,
+    queryFn: async () => {
+      const response = await fetch("/api/repo/branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repoPath }),
+      });
+      if (!response.ok) throw new Error("Failed to load branches");
+      return response.json();
+    },
+    staleTime: 60_000,
+  });
+
+  // Sync branches state and auto-select first
+  useEffect(() => {
+    if (branchesData?.branches) {
+      setBranches(branchesData.branches);
+      if (!selectedBranch && branchesData.branches.length > 0) {
+        setSelectedBranch(branchesData.branches[0]);
+      }
+    }
+  }, [branchesData, selectedBranch]);
 
   const handlePathSubmit = async (path: string) => {
     setLoadingRepo(true);
@@ -107,29 +96,11 @@ export default function Home() {
     setSelectedBranchesForComparison([]);
 
     try {
-      const response = await fetch("/api/repo/branches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoPath: path }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to load repository");
-      }
-
-      const data = await response.json();
       setRepoPath(path);
-      setBranches(data.branches);
       
       // Save to localStorage on successful load
       if (typeof window !== "undefined") {
         localStorage.setItem("minigit-repo-path", path);
-      }
-      
-      // Auto-select first branch if available
-      if (data.branches.length > 0) {
-        handleBranchSelect(path, data.branches[0]);
       }
       
       // Switch to diff tab after successful load
@@ -143,67 +114,72 @@ export default function Home() {
 
   const handleBranchSelect = async (path: string, branch: string) => {
     setSelectedBranch(branch);
-    setLoadingCommits(true);
     setCommits([]);
     setCurrentDiff("");
     setDiffTitle("");
     setBranchComparisonMode(false);
+  };
 
-    try {
+  // React Query: commits
+  const { data: commitsData, isLoading: commitsLoading } = useQuery<{ commits: GitCommit[] }>({
+    queryKey: ["commits", repoPath, selectedBranch],
+    enabled: !!repoPath && !!selectedBranch,
+    queryFn: async () => {
       const response = await fetch("/api/repo/commits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoPath: path || repoPath, branch }),
+        body: JSON.stringify({ repoPath, branch: selectedBranch }),
       });
+      if (!response.ok) throw new Error("Failed to load commits");
+      return response.json();
+    },
+    staleTime: 60_000,
+  });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to load commits");
-      }
-
-      const data = await response.json();
-      setCommits(data.commits);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load commits");
-    } finally {
-      setLoadingCommits(false);
+  // Sync commits state
+  useEffect(() => {
+    if (commitsData?.commits) {
+      setCommits(commitsData.commits);
     }
-  };
+    setLoadingCommits(commitsLoading);
+  }, [commitsData, commitsLoading]);
 
   // View single commit - Opens sidebar
   const handleViewCommit = async (commitOid: string) => {
-    console.log("View commit clicked:", commitOid);
-    setLoadingDiff(true);
-    setCurrentDiff("");
     setBranchComparisonMode(false);
+    setCurrentDiff("");
+    setDiffTitle(`Commit ${commitOid.substring(0, 7)}`);
+    setCurrentCommitOid(commitOid);
+    // Force refetch so reopening the same commit works
+    queryClient.invalidateQueries({ queryKey: ["commit-diff", repoPath, commitOid] });
+  };
 
-    try {
+  // React Query: commit diff
+  const { data: diffData, isLoading: diffLoading } = useQuery<{ diff: string }>({
+    queryKey: ["commit-diff", repoPath, currentCommitOid],
+    enabled: !!repoPath && !!currentCommitOid,
+    queryFn: async () => {
       const response = await fetch("/api/repo/commit-diff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoPath, commitOid }),
+        body: JSON.stringify({ repoPath, commitOid: currentCommitOid }),
       });
+      if (!response.ok) throw new Error("Failed to load commit diff");
+      return response.json();
+    },
+  });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to load commit diff");
-      }
-
-      const data = await response.json();
-      console.log("Diff received, length:", data.diff?.length);
-      setCurrentDiff(data.diff);
-      setDiffTitle(`Commit ${commitOid.substring(0, 7)}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load commit diff");
-      console.error("Error loading diff:", err);
-    } finally {
-      setLoadingDiff(false);
-    }
-  };
+  // Sync diff state
+  useEffect(() => {
+    setLoadingDiff(diffLoading);
+    if (diffData?.diff) setCurrentDiff(diffData.diff);
+  }, [diffData, diffLoading]);
 
   const handleCloseDiffSidebar = () => {
     setCurrentDiff("");
     setDiffTitle("");
+    // Clear selected commit so clicking the same one retriggers fetch
+    setCurrentCommitOid(null);
   };
 
   // Branch comparison handlers
@@ -227,35 +203,35 @@ export default function Home() {
 
   const handleCompareBranches = async () => {
     if (selectedBranchesForComparison.length !== 2) return;
-
-    setLoadingDiff(true);
     setCurrentDiff("");
+    setDiffTitle(`${selectedBranchesForComparison[0]} ↔ ${selectedBranchesForComparison[1]}`);
+    setComparePair({ b1: selectedBranchesForComparison[0], b2: selectedBranchesForComparison[1] });
+  };
 
-    try {
+  // React Query: compare branches diff
+  const { data: compareData, isLoading: compareLoading } = useQuery<{ diff: string }>({
+    queryKey: ["compare-branches", repoPath, comparePair?.b1, comparePair?.b2],
+    enabled: !!repoPath && !!comparePair?.b1 && !!comparePair?.b2,
+    queryFn: async () => {
       const response = await fetch("/api/repo/compare-branches", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           repoPath,
-          branch1: selectedBranchesForComparison[0],
-          branch2: selectedBranchesForComparison[1],
+          branch1: comparePair!.b1,
+          branch2: comparePair!.b2,
         }),
       });
+      if (!response.ok) throw new Error("Failed to compare branches");
+      return response.json();
+    },
+  });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to compare branches");
-      }
-
-      const data = await response.json();
-      setCurrentDiff(data.diff);
-      setDiffTitle(`${selectedBranchesForComparison[0]} ↔ ${selectedBranchesForComparison[1]}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to compare branches");
-    } finally {
-      setLoadingDiff(false);
-    }
-  };
+  // Sync compare diff state
+  useEffect(() => {
+    setLoadingDiff(compareLoading);
+    if (compareData?.diff) setCurrentDiff(compareData.diff);
+  }, [compareData, compareLoading]);
 
   return (
     <main className="container mx-auto p-6 space-y-6">
@@ -287,11 +263,11 @@ export default function Home() {
           />
 
           {branches.length > 0 && (
-            <BranchList
+              <BranchList
               branches={branches}
               selectedBranch={selectedBranch}
               onBranchSelect={(branch) => handleBranchSelect(repoPath, branch)}
-              loading={loadingRepo}
+                loading={branchesLoading}
             />
           )}
         </TabsContent>
@@ -300,11 +276,11 @@ export default function Home() {
         <TabsContent value="diff" className="space-y-4">
           {/* Branch selector */}
           {branches.length > 0 && (
-            <BranchList
+              <BranchList
               branches={branches}
               selectedBranch={selectedBranch}
               onBranchSelect={(branch) => handleBranchSelect(repoPath, branch)}
-              loading={loadingRepo}
+                loading={branchesLoading}
               comparisonMode={branchComparisonMode}
               selectedBranchesForComparison={selectedBranchesForComparison}
               onBranchComparisonSelect={handleBranchComparisonSelect}
@@ -340,7 +316,7 @@ export default function Home() {
               selectedCommits={[]}
               onCommitSelect={() => {}}
               onViewCommit={handleViewCommit}
-              loading={loadingCommits}
+              loading={commitsLoading}
               mode="view"
             />
           )}
