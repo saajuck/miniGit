@@ -1,114 +1,103 @@
 # MiniGit Viewer
 
-A modern, full-stack web application for browsing local Git repositories. View branches, commits, and diffs with a beautiful UI built with Next.js and shadcn/ui.
+A web application for browsing local Git repositories. View branches, commits, diffs, and commit graphs.
+
+**Note**: This project was entirely coded by AI (Claude with Cursor).
 
 ## Features
 
-- 🔍 Browse any local Git repository
-- 🌿 View all branches in a repository
-- 📝 Display commit history with author and timestamp
-- 👁️ **View changes in a single commit** (new!)
-- 🔀 Compare two commits with side-by-side diff view
-- 🌲 Compare two branches to see all differences
-- 📑 **Tabbed interface** for organized workflow (new!)
-- 🎨 Modern UI with Tailwind CSS and shadcn/ui components
-- 🐳 Docker support for easy deployment
+- Browse local Git repositories by path
+- List all branches in a repository
+- Display commit history with author, timestamp, and Gravatar avatars
+- Interactive Git graph visualization using D3.js
+  - Topological sorting (children appear before parents)
+  - Branch-specific colors and column positioning
+  - Supports merge commits and fast-forward merges
+- View single commit diffs in a resizable sidebar
+  - Width adjustable from 25% to 75% of screen
+  - Closes with Escape key, X button, or overlay click
+- Compare two commits with side-by-side diff view
+- Compare two branches to view differences
+- React Query for API call caching
+- Repository path saved to localStorage
+- Docker support for deployment
 
 ## Tech Stack
 
-- **Frontend & Backend**: Next.js 14+ (App Router)
-- **UI Library**: React with shadcn/ui components
+- **Framework**: Next.js 14+ (App Router)
+- **UI Components**: shadcn/ui
 - **Styling**: Tailwind CSS
+- **Data Fetching**: React Query (TanStack Query)
 - **Git Operations**: isomorphic-git
 - **Diff Rendering**: diff2html
+- **Graph Visualization**: D3.js
+- **Avatar Generation**: Gravatar (MD5 hash)
 - **Language**: TypeScript
 
-## Prerequisites
+## Requirements
 
 - Node.js 20+ (for local development)
 - Docker & Docker Compose (for containerized deployment)
 
-## Installation & Usage
+## Installation
 
-### Option 1: Local Development
+### Local Development
 
-1. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+npm run dev
+```
 
-2. **Start the development server:**
-   ```bash
-   npm run dev
-   ```
+Open [http://localhost:3000](http://localhost:3000)
 
-3. **Open your browser:**
-   Navigate to [http://localhost:3000](http://localhost:3000)
+### Docker Production
 
-### Option 2: Docker (Production)
+```bash
+docker-compose up --build
+```
 
-1. **Build and run with Docker Compose:**
-   ```bash
-   docker-compose up --build
-   ```
+Open [http://localhost:3000](http://localhost:3000)
 
-2. **Open your browser:**
-   Navigate to [http://localhost:3000](http://localhost:3000)
+## Usage
 
-### Option 3: Docker (Development with Hot Reload)
+### Repository Selection
 
-1. **Run the development container:**
-   ```bash
-   docker-compose --profile dev up
-   ```
+1. Enter the absolute path to a local Git repository
+2. Path must contain a `.git` directory
+3. Repository path is saved to localStorage
 
-2. **Open your browser:**
-   Navigate to [http://localhost:3000](http://localhost:3000)
+### Diff Viewer
 
-## How to Use
+**List View**:
+- Table of commits with hash, message, author, date
+- Click "View" to see a single commit diff
+- Select two commits to compare
 
-The application is organized into **3 tabs** for a clean workflow:
+**Graph View**:
+- D3.js visualization of commit graph
+- Select branches to display (all shown if none selected)
+- Each branch has unique color and column
+- Click commit nodes to view diffs
+- Commits ordered topologically (children before parents)
 
-### Tab 1: Repository 📁
+**Single Commit Diff**:
+- Opens in resizable sidebar (25%-75% width)
+- Close with Escape key, X button, or overlay click
 
-1. **Enter Repository Path**: 
-   - **Option A - Type the path**: In the input field, enter the full path to a local Git repository
-     - Example: `/home/user/projects/my-repo`
-   - **Option B - Browse button**: Click the "Browse" button to open a folder picker
-     - Note: Due to browser security restrictions, you may need to manually copy/paste the full path
-   - The path should contain a `.git` directory
-
-2. **Select a Branch**:
-   - Once loaded, view all branches and select one to work with
-
-### Tab 2: Commit Diff 🔀
-
-1. **View a Single Commit**:
-   - Click the "View" button next to any commit
-   - See all changes made in that specific commit
-   - Perfect for reviewing what changed in a commit
-
-2. **Compare Two Commits**:
-   - Select two commits using checkboxes
-   - View side-by-side diff between the two commits
-   - Automatic syntax highlighting
-
-### Tab 3: Branch Comparison 🌲
-
-1. **Compare Branches**:
-   - Click the "Compare Branches" button
-   - Select two branches by clicking on them
-   - Click "Compare [branch1] ↔ [branch2]"
-   - View complete diff between the branches
+**Branch Comparison**:
+- Click "Compare Branches"
+- Select two branches
+- View complete diff between branches
 
 ## API Endpoints
 
-The application exposes the following API endpoints:
+All endpoints use POST with JSON body.
 
 ### POST `/api/repo/branches`
-List all branches in a repository.
 
-**Request Body:**
+List branches in repository.
+
+**Request:**
 ```json
 {
   "repoPath": "/path/to/repo"
@@ -123,9 +112,10 @@ List all branches in a repository.
 ```
 
 ### POST `/api/repo/commits`
-Get commit history for a specific branch.
 
-**Request Body:**
+Get commit history for a branch.
+
+**Request:**
 ```json
 {
   "repoPath": "/path/to/repo",
@@ -145,22 +135,59 @@ Get commit history for a specific branch.
           "name": "John Doe",
           "email": "john@example.com",
           "timestamp": 1234567890
-        }
+        },
+        "parent": ["parent-oid"]
       }
     }
   ]
 }
 ```
 
-### POST `/api/repo/diff`
-Get the diff between two commits.
+### POST `/api/repo/graph`
 
-**Request Body:**
+Get commit graph data for visualization (supports multiple branches).
+
+**Request:**
 ```json
 {
   "repoPath": "/path/to/repo",
-  "commit1": "abc123...",
-  "commit2": "def456..."
+  "branchNames": ["main", "develop"]
+}
+```
+
+**Response:**
+```json
+{
+  "commits": [
+    {
+      "oid": "abc123...",
+      "message": "Initial commit",
+      "author": {
+        "name": "John Doe",
+        "email": "john@example.com"
+      },
+      "timestamp": 1234567890,
+      "parents": [],
+      "branches": ["main"],
+      "primaryBranch": "main"
+    }
+  ],
+  "branchTips": {
+    "main": "latest-commit-oid",
+    "develop": "another-commit-oid"
+  }
+}
+```
+
+### POST `/api/repo/commit-diff`
+
+Get diff for a single commit (compared with parent).
+
+**Request:**
+```json
+{
+  "repoPath": "/path/to/repo",
+  "commitOid": "abc123..."
 }
 ```
 
@@ -172,9 +199,10 @@ Get the diff between two commits.
 ```
 
 ### POST `/api/repo/compare-branches`
-Compare two branches and get their differences.
 
-**Request Body:**
+Compare two branches.
+
+**Request:**
 ```json
 {
   "repoPath": "/path/to/repo",
@@ -190,113 +218,95 @@ Compare two branches and get their differences.
 }
 ```
 
-### POST `/api/repo/commit-diff`
-Get the diff for a single commit (compares with parent commit).
-
-**Request Body:**
-```json
-{
-  "repoPath": "/path/to/repo",
-  "commitOid": "abc123..."
-}
-```
-
-**Response:**
-```json
-{
-  "diff": "diff --git a/file.txt b/file.txt\n..."
-}
-```
-
 ## Project Structure
 
 ```
-MiniGit/
-├── src/
-│   ├── app/
-│   │   ├── page.tsx              # Main application page
-│   │   ├── layout.tsx            # Root layout
-│   │   ├── globals.css           # Global styles
-│   │   └── api/
-│   │       └── repo/
-│   │           ├── branches/route.ts  # Branches API
-│   │           ├── commits/route.ts   # Commits API
-│   │           └── diff/route.ts      # Diff API
-│   ├── components/
-│   │   ├── ui/                   # shadcn/ui components
-│   │   ├── BranchList.tsx
-│   │   ├── CommitList.tsx
-│   │   ├── DiffViewer.tsx
-│   │   └── RepoPathInput.tsx
-│   ├── services/
-│   │   └── git.service.ts        # Git operations
-│   ├── types/
-│   │   └── git.types.ts          # TypeScript types
-│   └── lib/
-│       └── utils.ts              # Utility functions
-├── public/                       # Static assets
-├── Dockerfile                    # Production Docker image
-├── docker-compose.yml            # Docker Compose config
-└── README.md                     # This file
+src/
+├── app/
+│   ├── page.tsx              # Main page
+│   ├── layout.tsx            # Root layout with providers
+│   ├── providers.tsx         # React Query provider
+│   ├── globals.css           # Global styles
+│   └── api/repo/
+│       ├── branches/route.ts
+│       ├── commits/route.ts
+│       ├── commit-diff/route.ts
+│       ├── compare-branches/route.ts
+│       ├── diff/route.ts
+│       └── graph/route.ts
+├── components/
+│   ├── ui/                   # shadcn/ui components
+│   ├── BranchList.tsx
+│   ├── CommitList.tsx
+│   ├── CommitGraph.tsx        # D3.js graph
+│   ├── DiffViewer.tsx
+│   ├── ResizableDiffSidebar.tsx
+│   ├── GravatarAvatar.tsx
+│   └── RepoPathInput.tsx
+├── services/
+│   └── git.service.ts        # Git operations
+├── types/
+│   └── git.types.ts
+└── lib/
+    ├── utils.ts
+    └── gravatar.ts
 ```
 
-## Architecture
+## Implementation Details
 
-MiniGit Viewer is built as a full-stack Next.js application:
+### Topological Sorting
 
-- **Frontend**: React components with shadcn/ui for a modern, accessible UI
-- **Backend**: Next.js API routes handle Git operations server-side
-- **Git Integration**: isomorphic-git provides pure JavaScript Git implementation
-- **Diff Rendering**: diff2html creates beautiful, syntax-highlighted diffs
+Uses reverse Kahn's algorithm:
+- Starts with tip commits (no children)
+- Processes commits, then their parents
+- Ensures children appear before parents
+- Maintains chronological order when possible
 
-The application runs entirely locally and does not send any data to external servers.
+### Branch Visualization
 
-## Development
+- Each branch assigned unique color and column
+- Primary branch determined by: branch tip > priority branch (main/dev) > first branch
+- Prevents line overlapping with branch-specific columns
 
-### Building for Production
+### Performance
 
-```bash
-npm run build
-npm start
-```
-
-### Linting
-
-```bash
-npm run lint
-```
+- React Query caching (1 minute stale time)
+- Limited to 50 commits per branch
+- Files > 1MB skipped in diffs
+- Optimized diff calculation for initial commits
 
 ## Docker Configuration
 
-The `docker-compose.yml` includes volume mounts to access host Git repositories:
-
-- `/home:/home:ro` - Read-only access to user home directories
+`docker-compose.yml` mounts:
+- `/home:/home:ro` - Read-only access to home directories
 - `/tmp:/tmp:ro` - Read-only access to temp directory
-
-**Security Note**: The mounted volumes are read-only (`:ro` flag) to prevent accidental modifications.
 
 ## Troubleshooting
 
-### "Not a git repository" Error
-- Ensure the path you entered contains a `.git` directory
-- Use absolute paths, not relative paths
-- Verify you have read permissions for the directory
+**"Not a git repository" Error**
+- Path must contain `.git` directory
+- Use absolute paths
+- Verify read permissions
 
-### Commits Not Loading
-- Verify the branch name is correct
-- Some repositories may use `master` instead of `main`
-- Check that the branch has commits
+**Commits Not Loading**
+- Verify branch name
+- Check branch has commits
+- Graph API limits to 50 commits per branch
 
-### Diff Not Showing
-- Ensure you have selected exactly two commits
+**Graph Not Displaying**
+- Select at least one branch
+- Check browser console for errors
+
+**Diff Not Showing**
+- For comparison: select exactly two commits
 - Large diffs may take time to render
-- Check the browser console for errors
+- Files > 1MB are skipped
+
+**Sidebar Not Closing**
+- Press Escape key
+- Click X button
+- Click overlay
 
 ## License
 
-MIT License - Feel free to use this project for any purpose.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
+MIT License
