@@ -327,6 +327,7 @@ export default function Home() {
               commits={commits}
               allBranches={branches}
               currentBranch={selectedBranch}
+              repoPath={repoPath}
             />
           )}
 
